@@ -166,7 +166,7 @@ def train():
             p.data.add_(-lr, p.grad.data)
 
         # Ensure the inputs don't get too large
-        if args.stablize > 0:
+        if args.stabilize > 0:
             wvecs = model.encoder.weight.data
             ones = torch.ones_like(wvecs)
             trimmed_wvecs = torch.min(torch.max(wvecs, -ones), ones)
@@ -197,8 +197,7 @@ def train():
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss / args.log_interval
             elapsed = time.time() - start_time
-            message = '| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
-                    'loss {:5.2f} | ppl {:8.2f}'.format(
+            message = '| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | loss {:5.2f} | ppl {:8.2f}'.format(
                 epoch, batch, len(train_data) // args.bptt, lr,
                 elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss))
             print(message)
@@ -228,9 +227,7 @@ try:
         train()
         val_loss = evaluate(val_data)
         print('-' * 89)
-        message = '| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-                  'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                           val_loss, math.exp(val_loss)))
+        message = '| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time), val_loss, math.exp(val_loss))
         print(message)
         print('-' * 89)
         with open(args.save + "_log", "a") as handle:
