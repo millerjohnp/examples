@@ -45,6 +45,8 @@ parser.add_argument('--save', type=str, default='model.pt',
                     help='path to save the final model')
 parser.add_argument('--onnx-export', type=str, default='',
                     help='path to export the final model in onnx format')
+parser.add_argument('--stabilize', type=int, default=-1,
+                    help='user something non-zero')
 args = parser.parse_args()
 
 # Set the random seed manually for reproducibility.
@@ -162,6 +164,33 @@ def train():
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         for p in model.parameters():
             p.data.add_(-lr, p.grad.data)
+
+        # Ensure the inputs don't get too large
+        if args.stabilize > 0:
+            wvecs = model.encoder.weight.data
+            ones = torch.ones_like(wvecs)
+            trimmed_wvecs = torch.min(torch.max(wvecs, -ones), ones)
+            model.encoder.weight.data.set_(trimmed_wvecs)
+
+            # One set of weights satisfying stability requirement
+            recur_weights = model.rnn.weight_hh_l0.data
+            wi, wf, wz, wo = recur_weights.chunk(4, 0)
+            
+            trimmed_wi =  wi * 0.395  / torch.sum(torch.abs(wi), 0)
+            trimmed_wf =  wf * 0.155  / torch.sum(torch.abs(wf), 0)
+            trimmed_wz =  wz * 0.099  / torch.sum(torch.abs(wz), 0)
+            trimmed_wo =  wo * 0.395 / torch.sum(torch.abs(wo), 0)
+            new_recur_weights = torch.cat([trimmed_wi, trimmed_wf, trimmed_wz, trimmed_wo], 0)
+            model.rnn.weight_hh_l0.data.set_(new_recur_weights)
+
+            # Also trim the input to hidden weight for the forget gate
+            ih_weights = model.rnn.weight_ih_l0.data
+            ui, uf, uz, uo = ih_weights.chunk(4, 0)
+            trimmed_uf =  uf * 0.25  / torch.sum(torch.abs(uf), 0)
+            new_ih_weights = torch.cat([ui, trimmed_uf, uz, uo], 0)
+            model.rnn.weight_ih_l0.data.set_(new_ih_weights)
+
+            model.rnn.flatten_parameters()
 
         total_loss += loss.item()
 
