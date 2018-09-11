@@ -127,12 +127,12 @@ def get_batch(source, i):
     return data, target
 
 
-def evaluate(data_source):
+def evaluate(data_source, batch_size=eval_batch_size):
     # Turn on evaluation mode which disables dropout.
     model.eval()
     total_loss = 0.
     ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(eval_batch_size)
+    hidden = model.init_hidden(batch_size)
     with torch.no_grad():
         for i in range(0, data_source.size(0) - 1, args.bptt):
             data, targets = get_batch(data_source, i)
@@ -166,7 +166,7 @@ def train():
             p.data.add_(-lr, p.grad.data)
 
         # Ensure the inputs don't get too large
-        if args.stabilize > 0:
+        if args.stabilize > 0 and args.model == "LSTM":
             wvecs = model.encoder.weight.data
             ones = torch.ones_like(wvecs)
             trimmed_wvecs = torch.min(torch.max(wvecs, -ones), ones)
@@ -192,6 +192,20 @@ def train():
 
             model.rnn.flatten_parameters()
 
+        elif args.stabilize > 0:
+            # Sometimes the projection fails apparently.
+            # This is slow-- a better strategy would be to use the power method!
+            # (e.g. power on A^T A, and then normalize by sqrt(\lambda).
+            try:
+                U, s, V = torch.svd(model.rnn.weight_hh_l0.data)
+                s = torch.min(s, torch.ones_like(s))
+                projected =  torch.mm(torch.mm(U, torch.diag(s)), V.t()) 
+                model.rnn.weight_hh_l0.data.set_(projected)
+            except:
+                print("Projection failed!")
+                continue
+
+
         total_loss += loss.item()
 
         if batch % args.log_interval == 0 and batch > 0:
@@ -202,7 +216,7 @@ def train():
                 elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss))
             print(message)
             with open(args.save + "_log", "a") as handle:
-                handle.write(message)
+                handle.write(message + "\n")
             total_loss = 0
             start_time = time.time()
 
@@ -232,7 +246,7 @@ try:
         print('-' * 89)
         with open(args.save + "_log", "a") as handle:
             handle.write('-'*89)
-            handle.write(message)
+            handle.write(message + "\n")
             handle.write('-'*89)
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss:
@@ -258,6 +272,11 @@ test_loss = evaluate(test_data)
 print('=' * 89)
 print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
     test_loss, math.exp(test_loss)))
+print('=' * 89)
+train_loss = evaluate(train_data, args.batch_size)
+print('=' * 89)
+print('| End of training | train loss {:5.2f} | train ppl {:8.2f}'.format(
+    train_loss, math.exp(train_loss)))
 print('=' * 89)
 
 if len(args.onnx_export) > 0:
